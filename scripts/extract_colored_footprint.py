@@ -134,7 +134,7 @@ def main() -> int:
     data = {
         "planBounds": {"width": plan_width, "height": plan_height},
         "wallPxPerUnit": PX_PER_UNIT,
-        "footprintModel": "/floor-footprint.glb",
+        "footprintModel": "floor-footprint.glb",
         "footprintHeight": FOOTPRINT_HEIGHT_METERS,
         "zones": zones,
     }

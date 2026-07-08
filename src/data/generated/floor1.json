@@ -4,7 +4,7 @@
     "height": 72.6
   },
   "wallPxPerUnit": 10,
-  "footprintModel": "/floor-footprint.glb",
+  "footprintModel": "floor-footprint.glb",
   "footprintHeight": 2.4,
   "zones": [
     {

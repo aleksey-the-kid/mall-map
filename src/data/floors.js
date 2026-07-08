@@ -1,5 +1,10 @@
 import floor1 from './generated/floor1.json'
 
+function publicAsset(path) {
+  const file = path.startsWith('/') ? path.slice(1) : path
+  return `${import.meta.env.BASE_URL}${file}`
+}
+
 /**
  * Floor plan data for GREEN CITY shopping center.
  * Coordinates are in plan space (origin top-left, y grows downward).
@@ -10,10 +15,10 @@ export const FLOORS = [
   {
     id: 1,
     label: '1 этаж',
-    planImage: '/floor-plan.png',
+    planImage: publicAsset('floor-plan.png'),
     wallPxPerUnit: floor1.wallPxPerUnit,
     planBounds: floor1.planBounds,
-    footprintModel: floor1.footprintModel,
+    footprintModel: publicAsset(floor1.footprintModel),
     footprintHeight: floor1.footprintHeight,
     zones: floor1.zones,
   },
