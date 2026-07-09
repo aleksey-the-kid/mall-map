@@ -5,6 +5,8 @@ import { getZoneSize } from '../lib/zoneGeometry.js'
 
 const props = defineProps({
   zone: { type: Object, default: null },
+  sceneObject: { type: Object, default: null },
+  sceneObjectAsset: { type: Object, default: null },
   hasEdits: { type: Boolean, default: false },
   defaultHeight: { type: Number, default: 2.4 },
 })
@@ -15,6 +17,8 @@ const emit = defineEmits([
   'reset-zone',
   'reset-all',
   'add-zone',
+  'add-object',
+  'delete-scene-object',
   'export-json',
 ])
 
@@ -90,6 +94,9 @@ const zoneOffsetZ = computed({
       <button type="button" class="admin-btn admin-btn--primary" @click="emit('add-zone')">
         + Добавить блок
       </button>
+      <button type="button" class="admin-btn admin-btn--primary" @click="emit('add-object')">
+        + Добавить объект
+      </button>
       <button type="button" class="admin-btn" @click="emit('export-json')">
         Экспорт JSON
       </button>
@@ -108,7 +115,30 @@ const zoneOffsetZ = computed({
       вручную. Оригинальные координаты сохранены — сброс вернёт позицию и размер.
     </p>
 
-    <div v-if="zone" class="admin-panel__form">
+    <div v-if="sceneObject" class="admin-panel__form">
+      <h3>Объект {{ sceneObject.id }}</h3>
+
+      <p class="admin-field__meta">
+        Модель: {{ sceneObjectAsset?.name ?? sceneObject.assetId }}
+      </p>
+
+      <p class="admin-field__meta">
+        Позиция: X {{ (sceneObject.position?.[0] ?? 0).toFixed(1) }},
+        Z {{ (sceneObject.position?.[1] ?? 0).toFixed(1) }}
+      </p>
+
+      <p class="admin-panel__hint">
+        Двигайте объект стрелками гизмо (красная — X, синяя — Z).
+      </p>
+
+      <div class="admin-panel__zone-actions">
+        <button type="button" class="admin-btn admin-btn--danger" @click="emit('delete-scene-object')">
+          Удалить объект
+        </button>
+      </div>
+    </div>
+
+    <div v-else-if="zone" class="admin-panel__form">
       <h3>Блок №{{ zone.id }}</h3>
 
       <label class="admin-field">

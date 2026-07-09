@@ -3,11 +3,10 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from .auth import verify_token
 from .config import get_settings
 from .pipeline import PipelineError, process_plan_image
 from .supabase_client import get_supabase, storage_public_url
@@ -87,7 +86,7 @@ def list_malls() -> list[MallOut]:
 
 
 @app.post("/malls", response_model=MallOut)
-def create_mall(body: MallCreate, _user: dict = Depends(verify_token)) -> MallOut:
+def create_mall(body: MallCreate) -> MallOut:
     sb = get_supabase()
     result = sb.table("malls").insert({"name": body.name, "address": body.address}).execute()
     return MallOut(**result.data[0])
@@ -110,7 +109,6 @@ def list_floors(mall_id: str) -> list[FloorOut]:
 def create_floor(
     mall_id: str,
     body: FloorCreate,
-    _user: dict = Depends(verify_token),
 ) -> FloorOut:
     sb = get_supabase()
     mall = sb.table("malls").select("id").eq("id", mall_id).execute()
@@ -180,7 +178,6 @@ async def upload_plan(
     floor_id: str,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    _user: dict = Depends(verify_token),
 ) -> dict[str, str]:
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(400, "Expected an image file")
@@ -218,7 +215,6 @@ class FloorZonesUpdate(BaseModel):
 def update_floor_zones(
     floor_id: str,
     body: FloorZonesUpdate,
-    _user: dict = Depends(verify_token),
 ) -> FloorOut:
     sb = get_supabase()
     floor = sb.table("floors").select("id, status").eq("id", floor_id).execute()

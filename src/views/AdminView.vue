@@ -3,21 +3,11 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import MallMap3D from '../components/MallMap3D.vue'
 import AdminPanel from '../components/AdminPanel.vue'
-import AdminLogin from '../components/AdminLogin.vue'
+import ObjectLibraryPanel from '../components/ObjectLibraryPanel.vue'
 import { findZoneById } from '../data/floors.js'
-import { useAuth } from '../composables/useAuth.js'
 import { useMallData } from '../composables/useMallData.js'
 import { useFloorAdmin } from '../composables/useFloorAdmin.js'
-
-const {
-  user,
-  loading: authLoading,
-  error: authError,
-  isAuthenticated,
-  requiresAuth,
-  signIn,
-  signOut,
-} = useAuth()
+import { useSceneObjects } from '../composables/useSceneObjects.js'
 
 const {
   malls,
@@ -39,6 +29,8 @@ const {
 } = useMallData()
 
 const selectedZoneId = ref(null)
+const selectedSceneObjectId = ref(null)
+const panelMode = ref('zones')
 const showPlan = ref(true)
 const mapRef = ref(null)
 const uploading = ref(false)
@@ -50,19 +42,34 @@ const newMallAddress = ref('')
 const newFloorLabel = ref('')
 
 const floorForAdmin = computed(() => currentFloor.value)
+
 const {
   zones,
-  hasEdits,
+  hasEdits: hasZoneEdits,
   saving,
   saveError,
   updateZone,
   addZone,
   deleteZone,
   resetZone,
-  resetAll,
+  resetAll: resetAllZones,
   exportJson,
   resetFromFloor,
 } = useFloorAdmin(floorForAdmin, { useRemote })
+
+const {
+  objects: sceneObjects,
+  libraryAssets,
+  addObject,
+  updateObject,
+  deleteObject: deleteSceneObject,
+  clearAll: clearAllSceneObjects,
+  resetFromFloor: resetSceneObjectsFromFloor,
+  addCustomAsset,
+  getAsset,
+} = useSceneObjects(floorForAdmin)
+
+const hasEdits = computed(() => hasZoneEdits.value)
 
 const renderableFloor = computed(() => {
   const floor = currentFloor.value
@@ -72,6 +79,16 @@ const renderableFloor = computed(() => {
 
 const selectedZone = computed(() =>
   selectedZoneId.value ? findZoneById(renderableFloor.value, selectedZoneId.value) : null,
+)
+
+const selectedSceneObject = computed(() =>
+  selectedSceneObjectId.value
+    ? sceneObjects.value.find((o) => o.id === selectedSceneObjectId.value) ?? null
+    : null,
+)
+
+const selectedSceneObjectAsset = computed(() =>
+  selectedSceneObject.value ? getAsset(selectedSceneObject.value.assetId) : null,
 )
 
 const floorReady = computed(() => currentFloor.value?.status === 'ready')
@@ -84,22 +101,64 @@ onMounted(() => {
   loadMalls()
 })
 
-async function handleSignIn({ email, password }) {
-  await signIn(email, password)
-}
-
 function onZoneClick(id) {
   selectedZoneId.value = id
+  if (id) selectedSceneObjectId.value = null
+}
+
+function onSceneObjectClick(id) {
+  selectedSceneObjectId.value = id
+  if (id) {
+    selectedZoneId.value = null
+    panelMode.value = 'zones'
+  }
+}
+
+function onSceneObjectMove(id, position) {
+  updateObject(id, { position })
+}
+
+async function onSceneObjectDrop(assetId, position) {
+  const asset = getAsset(assetId)
+  if (!asset) return
+  const id = addObject({ assetId, position })
+  selectedSceneObjectId.value = id
+  selectedZoneId.value = null
+  await mapRef.value?.addSceneObject({ id, assetId, position }, asset)
+}
+
+function onOpenObjectLibrary() {
+  panelMode.value = 'objects'
+}
+
+function onCloseObjectLibrary() {
+  panelMode.value = 'zones'
+}
+
+function onUploadGlb(file) {
+  addCustomAsset(file)
+}
+
+function onDeleteSceneObject() {
+  if (!selectedSceneObjectId.value) return
+  const id = selectedSceneObjectId.value
+  deleteSceneObject(id)
+  mapRef.value?.removeSceneObject(id)
+  selectedSceneObjectId.value = null
 }
 
 function onSelectMall(id) {
   setMall(id)
   selectedZoneId.value = null
+  selectedSceneObjectId.value = null
+  panelMode.value = 'zones'
 }
 
 function onSelectFloor(id) {
   setFloor(id)
   selectedZoneId.value = null
+  selectedSceneObjectId.value = null
+  panelMode.value = 'zones'
 }
 
 function onUpdateZone(patch) {
@@ -151,8 +210,10 @@ function onResetZone() {
 
 function onResetAll() {
   if (!confirm('Сбросить все изменения к оригинальной модели?')) return
-  resetAll()
+  resetAllZones()
+  clearAllSceneObjects()
   selectedZoneId.value = null
+  selectedSceneObjectId.value = null
   mapRef.value?.reloadFloor()
 }
 
@@ -187,7 +248,10 @@ async function onPlanUpload(event) {
   try {
     const floor = await uploadPlan(currentFloorId.value, file)
     resetFromFloor(floor)
+    resetSceneObjectsFromFloor(floor)
     selectedZoneId.value = null
+    selectedSceneObjectId.value = null
+    panelMode.value = 'zones'
     mapRef.value?.reloadFloor()
   } catch (err) {
     uploadError.value = err.message
@@ -218,14 +282,7 @@ watch(
 </script>
 
 <template>
-  <AdminLogin
-    v-if="requiresAuth && !isAuthenticated && !authLoading"
-    :loading="authLoading"
-    :error="authError"
-    :sign-in="handleSignIn"
-  />
-
-  <div v-else class="app app--admin">
+  <div class="app app--admin">
     <header class="header">
       <div class="header__brand">
         <span class="header__logo">
@@ -233,9 +290,6 @@ watch(
         </span>
         <div class="header__links">
           <RouterLink to="/" class="header__back">← К карте</RouterLink>
-          <button v-if="requiresAuth && isAuthenticated" type="button" class="header__logout" @click="signOut">
-            Выйти
-          </button>
         </div>
       </div>
 
@@ -350,11 +404,17 @@ watch(
             ref="mapRef"
             :floor="renderableFloor"
             :selected-zone-id="selectedZoneId"
+            :selected-scene-object-id="selectedSceneObjectId"
+            :scene-objects="sceneObjects"
+            :resolve-scene-asset="getAsset"
             :show-plan="showPlan"
             :admin-mode="true"
             :has-edits="hasEdits"
             @zone-click="onZoneClick"
             @zone-move="onZoneMove"
+            @scene-object-click="onSceneObjectClick"
+            @scene-object-move="onSceneObjectMove"
+            @scene-object-drop="onSceneObjectDrop"
           />
 
           <div class="zoom-controls">
@@ -364,7 +424,10 @@ watch(
         </div>
 
         <AdminPanel
+          v-if="panelMode === 'zones'"
           :zone="selectedZone"
+          :scene-object="selectedSceneObject"
+          :scene-object-asset="selectedSceneObjectAsset"
           :has-edits="hasEdits"
           :default-height="renderableFloor?.footprintHeight ?? 2.4"
           @update-zone="onUpdateZone"
@@ -372,7 +435,16 @@ watch(
           @reset-zone="onResetZone"
           @reset-all="onResetAll"
           @add-zone="onAddZone"
+          @add-object="onOpenObjectLibrary"
+          @delete-scene-object="onDeleteSceneObject"
           @export-json="exportJson"
+        />
+
+        <ObjectLibraryPanel
+          v-else
+          :assets="libraryAssets"
+          @back="onCloseObjectLibrary"
+          @upload-glb="onUploadGlb"
         />
       </div>
     </main>
@@ -415,18 +487,13 @@ watch(
   align-items: center;
 }
 
-.header__back,
-.header__logout {
+.header__back {
   font-size: 13px;
   color: #666;
-  background: none;
-  border: none;
-  cursor: pointer;
   text-decoration: none;
 }
 
-.header__back:hover,
-.header__logout:hover {
+.header__back:hover {
   color: #111;
 }
 

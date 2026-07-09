@@ -5,12 +5,22 @@ import { MallMapRenderer } from '../lib/mallMapRenderer.js'
 const props = defineProps({
   floor: { type: Object, required: true },
   selectedZoneId: { type: String, default: null },
+  selectedSceneObjectId: { type: String, default: null },
+  sceneObjects: { type: Array, default: () => [] },
+  resolveSceneAsset: { type: Function, default: null },
   showPlan: { type: Boolean, default: false },
   adminMode: { type: Boolean, default: false },
   hasEdits: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['zone-click', 'zone-hover', 'zone-move'])
+const emit = defineEmits([
+  'zone-click',
+  'zone-hover',
+  'zone-move',
+  'scene-object-click',
+  'scene-object-move',
+  'scene-object-drop',
+])
 
 const containerRef = ref(null)
 let renderer = null
@@ -28,6 +38,12 @@ function loadCurrentFloor() {
     showPlan: props.showPlan,
     useProcedural: useProcedural.value,
   })
+  loadSceneObjects()
+}
+
+async function loadSceneObjects() {
+  if (!renderer || !props.resolveSceneAsset) return
+  await renderer.loadSceneObjects(props.sceneObjects, props.resolveSceneAsset)
 }
 
 watch(
@@ -37,7 +53,18 @@ watch(
 
 watch(
   () => props.selectedZoneId,
-  (id) => renderer?.setSelectedZone(id),
+  (id) => {
+    if (id) renderer?.setSelectedZone(id)
+    else if (!props.selectedSceneObjectId) renderer?.setSelectedZone(null)
+  },
+)
+
+watch(
+  () => props.selectedSceneObjectId,
+  (id) => {
+    if (id) renderer?.setSelectedSceneObject(id)
+    else if (!props.selectedZoneId) renderer?.setSelectedSceneObject(null)
+  },
 )
 
 watch(
@@ -65,9 +92,13 @@ onMounted(() => {
   renderer.onZoneClick = (id) => emit('zone-click', id)
   renderer.onZoneHover = (id) => emit('zone-hover', id)
   renderer.onZoneMove = (id, offset) => emit('zone-move', id, offset)
+  renderer.onSceneObjectClick = (id) => emit('scene-object-click', id)
+  renderer.onSceneObjectMove = (id, position) => emit('scene-object-move', id, position)
+  renderer.onSceneObjectDrop = (assetId, position) => emit('scene-object-drop', assetId, position)
   renderer.setAdminMode(props.adminMode)
   loadCurrentFloor()
   if (props.selectedZoneId) renderer.setSelectedZone(props.selectedZoneId)
+  if (props.selectedSceneObjectId) renderer.setSelectedSceneObject(props.selectedSceneObjectId)
 })
 
 onUnmounted(() => {
@@ -106,7 +137,35 @@ function reloadFloor() {
   loadCurrentFloor()
 }
 
-defineExpose({ zoomIn, zoomOut, focusZone, syncZone, setZoneOffset, removeZone, reloadFloor })
+async function addSceneObject(objectData, asset) {
+  return renderer?.addSceneObject(objectData, asset)
+}
+
+function removeSceneObject(objectId) {
+  renderer?.removeSceneObject(objectId)
+}
+
+function setSceneObjectPosition(objectId, position) {
+  renderer?.setSceneObjectPosition(objectId, position)
+}
+
+function raycastGround(clientX, clientY) {
+  return renderer?.raycastGround(clientX, clientY)
+}
+
+defineExpose({
+  zoomIn,
+  zoomOut,
+  focusZone,
+  syncZone,
+  setZoneOffset,
+  removeZone,
+  reloadFloor,
+  addSceneObject,
+  removeSceneObject,
+  setSceneObjectPosition,
+  raycastGround,
+})
 </script>
 
 <template>

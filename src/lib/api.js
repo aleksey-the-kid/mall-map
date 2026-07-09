@@ -1,24 +1,11 @@
-import { supabase } from './supabase.js'
-
 const API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 
 export const isApiConfigured = Boolean(API_URL)
-
-async function authHeaders() {
-  const headers = {}
-  if (supabase) {
-    const { data } = await supabase.auth.getSession()
-    const token = data.session?.access_token
-    if (token) headers.Authorization = `Bearer ${token}`
-  }
-  return headers
-}
 
 async function request(path, options = {}) {
   if (!API_URL) throw new Error('API URL is not configured')
   const headers = {
     ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-    ...(await authHeaders()),
     ...options.headers,
   }
   const res = await fetch(`${API_URL}${path}`, { ...options, headers })

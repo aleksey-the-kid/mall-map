@@ -26,6 +26,7 @@ function floorRowToRenderable(row) {
     footprintModel: glbUrl,
     footprintHeight: row.footprint_height ?? data.footprintHeight ?? 2.4,
     zones: data.zones ?? [],
+    sceneObjects: data.objects ?? [],
     floorJson: data,
     errorMessage: row.error_message,
   }
@@ -223,8 +224,9 @@ export function useMallData() {
 
 export function buildFloorJsonFromFloor(floor, zones) {
   const base = deepClone(floor.floorJson || {})
+  const { objects: _objects, ...rest } = base
   return {
-    ...base,
+    ...rest,
     planBounds: floor.planBounds ?? base.planBounds,
     wallPxPerUnit: floor.wallPxPerUnit ?? base.wallPxPerUnit ?? 10,
     footprintHeight: floor.footprintHeight ?? base.footprintHeight ?? 2.4,

@@ -14,6 +14,7 @@ import {
   getZoneOffset,
   getZoneWorldCentroid,
 } from './zoneGeometry.js'
+import { buildSceneObjectModel } from './sceneObjectBuilder.js'
 
 const DEFAULT_ZONE_HEIGHT = 0.15
 const ZONE_OPACITY_DEFAULT = 1
@@ -38,12 +39,20 @@ export class MallMapRenderer {
     this.onZoneClick = null
     this.onZoneHover = null
     this.onZoneMove = null
+    this.onSceneObjectClick = null
+    this.onSceneObjectMove = null
+    this.onSceneObjectDrop = null
+    this.resolveSceneAsset = null
     this.adminMode = false
     this._zoneHeight = DEFAULT_ZONE_HEIGHT
     this._footprintLoadId = 0
     this._planLoadId = 0
     this._suppressZoneMoveEmit = false
     this._ignoreClickAfterGizmo = false
+    this._selectionKind = null
+
+    this._groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
+    this._groundHit = new THREE.Vector3()
 
     this.scene = new THREE.Scene()
     this.scene.background = new THREE.Color(COLORS.background)
@@ -86,7 +95,11 @@ export class MallMapRenderer {
       this.controls.enabled = !event.value
       if (!event.value) {
         this._ignoreClickAfterGizmo = true
-        this._commitZoneOffset()
+        if (this._selectionKind === 'sceneObject') {
+          this._commitSceneObjectPosition()
+        } else {
+          this._commitZoneOffset()
+        }
       }
     })
 
@@ -120,6 +133,13 @@ export class MallMapRenderer {
     this.scene.add(this.wallGroup)
     this._wallLoadId = 0
 
+    this.sceneObjectGroup = new THREE.Group()
+    this.sceneObjectGroup.name = 'scene-objects'
+    this.scene.add(this.sceneObjectGroup)
+    this.sceneObjects = new Map()
+    this.selectedSceneObjectId = null
+    this.hoveredSceneObjectId = null
+
     this.planMesh = null
     this.tooltip = createTooltip()
     this.scene.add(this.tooltip.label)
@@ -130,10 +150,14 @@ export class MallMapRenderer {
     this._onResize = () => this.resize()
     this._onPointerMove = (e) => this._handlePointerMove(e)
     this._onClick = (e) => this._handleClick(e)
+    this._onDragOver = (e) => this._handleDragOver(e)
+    this._onDrop = (e) => this._handleDrop(e)
 
     window.addEventListener('resize', this._onResize)
     this.renderer.domElement.addEventListener('pointermove', this._onPointerMove)
     this.renderer.domElement.addEventListener('click', this._onClick)
+    this.renderer.domElement.addEventListener('dragover', this._onDragOver)
+    this.renderer.domElement.addEventListener('drop', this._onDrop)
 
     this._animate = true
     this._tick()
@@ -438,6 +462,9 @@ export class MallMapRenderer {
     if (!enabled) {
       this.transformControls.detach()
       this.controls.enabled = true
+      this._selectionKind = null
+    } else if (this._selectionKind === 'sceneObject' && this.selectedSceneObjectId) {
+      this._attachSceneObjectControls(this.selectedSceneObjectId)
     } else if (this.selectedId) {
       this._attachTransformControls(this.selectedId)
     }
@@ -485,6 +512,7 @@ export class MallMapRenderer {
     if (!entry) return
     if (this.transformControls.object === entry.group) {
       this.transformControls.detach()
+      this._selectionKind = null
     }
     this.zoneGroup.remove(entry.group)
     disposeObject3D(entry.group)
@@ -493,13 +521,196 @@ export class MallMapRenderer {
     if (this.hoveredId === zoneId) this.hoveredId = null
   }
 
+  _pickSceneObjectIdFromHits(hits) {
+    for (const hit of hits) {
+      let obj = hit.object
+      while (obj && obj !== this.sceneObjectGroup) {
+        const objectId = obj.userData?.sceneObjectId
+        if (objectId) return String(objectId)
+        obj = obj.parent
+      }
+    }
+    return null
+  }
+
+  _raycastSceneObjectId() {
+    if (!this.sceneObjectGroup.children.length) return null
+    const hits = this.raycaster.intersectObjects(this.sceneObjectGroup.children, true)
+    return this._pickSceneObjectIdFromHits(hits)
+  }
+
+  raycastGround(clientX, clientY) {
+    const rect = this.renderer.domElement.getBoundingClientRect()
+    this.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1
+    this.pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1
+    this.raycaster.setFromCamera(this.pointer, this.camera)
+    if (!this.raycaster.ray.intersectPlane(this._groundPlane, this._groundHit)) return null
+    return { x: this._groundHit.x, z: this._groundHit.z }
+  }
+
+  async addSceneObject(objectData, asset) {
+    const model = await buildSceneObjectModel(asset)
+    const group = new THREE.Group()
+    group.name = `scene-object-${objectData.id}`
+    group.userData.sceneObjectId = String(objectData.id)
+    group.add(model)
+    group.position.set(objectData.position[0], 0, objectData.position[1])
+
+    this.sceneObjectGroup.add(group)
+    this.sceneObjects.set(objectData.id, {
+      group,
+      object: objectData,
+      assetId: objectData.assetId,
+    })
+    return objectData.id
+  }
+
+  async loadSceneObjects(objects, resolveAsset) {
+    this.clearSceneObjects()
+    if (!objects?.length || !resolveAsset) return
+    for (const objectData of objects) {
+      const asset = resolveAsset(objectData.assetId)
+      if (!asset) continue
+      try {
+        await this.addSceneObject(objectData, asset)
+      } catch {
+        // skip broken assets
+      }
+    }
+  }
+
+  clearSceneObjects() {
+    if (this._selectionKind === 'sceneObject') {
+      this.transformControls.detach()
+      this._selectionKind = null
+    }
+    while (this.sceneObjectGroup.children.length) {
+      const child = this.sceneObjectGroup.children[0]
+      this.sceneObjectGroup.remove(child)
+      disposeObject3D(child)
+    }
+    this.sceneObjects.clear()
+    this.selectedSceneObjectId = null
+    this.hoveredSceneObjectId = null
+  }
+
+  removeSceneObject(objectId) {
+    const entry = this.sceneObjects.get(objectId)
+    if (!entry) return
+    if (this.transformControls.object === entry.group) {
+      this.transformControls.detach()
+      this._selectionKind = null
+    }
+    this.sceneObjectGroup.remove(entry.group)
+    disposeObject3D(entry.group)
+    this.sceneObjects.delete(objectId)
+    if (this.selectedSceneObjectId === objectId) this.setSelectedSceneObject(null)
+    if (this.hoveredSceneObjectId === objectId) this.hoveredSceneObjectId = null
+  }
+
+  setSceneObjectPosition(objectId, position) {
+    const entry = this.sceneObjects.get(objectId)
+    if (!entry || this.transformControls.dragging) return
+    entry.group.position.set(position[0], 0, position[1])
+    entry.object = { ...entry.object, position: [...position] }
+  }
+
+  _commitSceneObjectPosition() {
+    if (!this.selectedSceneObjectId || this._selectionKind !== 'sceneObject') return
+    const entry = this.sceneObjects.get(this.selectedSceneObjectId)
+    if (!entry) return
+
+    entry.group.position.y = 0
+    const position = [entry.group.position.x, entry.group.position.z]
+    const prev = entry.object.position ?? [0, 0]
+    if (Math.abs(prev[0] - position[0]) < 0.001 && Math.abs(prev[1] - position[1]) < 0.001) {
+      return
+    }
+    entry.object = { ...entry.object, position }
+    this.onSceneObjectMove?.(this.selectedSceneObjectId, position)
+  }
+
+  setSelectedSceneObject(id) {
+    this.selectedSceneObjectId = id ? String(id) : null
+    if (id) {
+      this.selectedId = null
+      this._selectionKind = 'sceneObject'
+      this.tooltip.label.visible = false
+      this.tooltip.el.style.display = 'none'
+      this._applySelection()
+      if (this.adminMode) this._attachSceneObjectControls(id)
+    } else {
+      if (this._selectionKind === 'sceneObject') {
+        this._selectionKind = null
+        this.transformControls.detach()
+      }
+    }
+    this._applySceneObjectHighlight()
+  }
+
+  _attachSceneObjectControls(objectId) {
+    const entry = this.sceneObjects.get(objectId)
+    if (!entry || !this.adminMode) {
+      this.transformControls.detach()
+      return
+    }
+    const position = entry.object.position ?? [0, 0]
+    entry.group.position.set(position[0], 0, position[1])
+    this.transformControls.attach(entry.group)
+    this._selectionKind = 'sceneObject'
+  }
+
+  _applySceneObjectHighlight() {
+    for (const [id, entry] of this.sceneObjects) {
+      const isSelected = String(id) === String(this.selectedSceneObjectId)
+      const isHovered = String(id) === String(this.hoveredSceneObjectId)
+      entry.group.traverse((child) => {
+        if (!child.isMesh || !child.material) return
+        const materials = Array.isArray(child.material) ? child.material : [child.material]
+        for (const mat of materials) {
+          if (!mat.emissive) continue
+          if (isSelected) {
+            mat.emissive.setHex(0x335588)
+            mat.emissiveIntensity = 0.35
+          } else if (isHovered) {
+            mat.emissive.setHex(0x223344)
+            mat.emissiveIntensity = 0.2
+          } else {
+            mat.emissive.setHex(0x000000)
+            mat.emissiveIntensity = 0
+          }
+        }
+      })
+    }
+  }
+
+  _handleDragOver(event) {
+    if (!this.adminMode) return
+    event.preventDefault()
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+  }
+
+  _handleDrop(event) {
+    const assetId = event.dataTransfer?.getData('application/x-scene-asset')
+    if (!assetId || !this.adminMode) return
+    event.preventDefault()
+    const pos = this.raycastGround(event.clientX, event.clientY)
+    if (!pos) return
+    this.onSceneObjectDrop?.(assetId, [pos.x, pos.z])
+  }
+
   reloadFloor(floor, options) {
     this.loadFloor(floor, options)
   }
 
   setSelectedZone(id) {
     this.selectedId = id ? String(id) : null
+    if (id) {
+      this.setSelectedSceneObject(null)
+      this._selectionKind = 'zone'
+    }
     this._applySelection()
+    this._applySceneObjectHighlight()
     if (id) {
       const entry = this.meshes.get(id)
       if (entry) {
@@ -517,7 +728,10 @@ export class MallMapRenderer {
     } else {
       this.tooltip.label.visible = false
       this.tooltip.el.style.display = 'none'
-      this.transformControls.detach()
+      if (this._selectionKind === 'zone') {
+        this._selectionKind = null
+        this.transformControls.detach()
+      }
     }
   }
 
@@ -563,6 +777,12 @@ export class MallMapRenderer {
 
     this._updatePointer(event)
 
+    const sceneObjectId = this._raycastSceneObjectId()
+    if (sceneObjectId !== this.hoveredSceneObjectId) {
+      this.hoveredSceneObjectId = sceneObjectId
+      this._applySceneObjectHighlight()
+    }
+
     const newId = this._raycastZoneId()
     if (newId !== this.hoveredId) {
       this.hoveredId = newId
@@ -570,7 +790,8 @@ export class MallMapRenderer {
       this.onZoneHover?.(newId)
     }
 
-    this.renderer.domElement.style.cursor = this.hoveredId ? 'pointer' : 'grab'
+    const hovering = sceneObjectId || newId
+    this.renderer.domElement.style.cursor = hovering ? 'pointer' : 'grab'
   }
 
   _handleClick(event) {
@@ -582,13 +803,22 @@ export class MallMapRenderer {
 
     this._updatePointer(event)
 
+    const sceneObjectId = this._raycastSceneObjectId()
+    if (sceneObjectId) {
+      this.setSelectedSceneObject(sceneObjectId)
+      this.onSceneObjectClick?.(sceneObjectId)
+      return
+    }
+
     const hitId = this._raycastZoneId()
     if (hitId) {
       this.setSelectedZone(hitId)
       this.onZoneClick?.(hitId)
     } else {
       this.setSelectedZone(null)
+      this.setSelectedSceneObject(null)
       this.onZoneClick?.(null)
+      this.onSceneObjectClick?.(null)
     }
   }
 
@@ -635,6 +865,8 @@ export class MallMapRenderer {
     window.removeEventListener('resize', this._onResize)
     this.renderer.domElement.removeEventListener('pointermove', this._onPointerMove)
     this.renderer.domElement.removeEventListener('click', this._onClick)
+    this.renderer.domElement.removeEventListener('dragover', this._onDragOver)
+    this.renderer.domElement.removeEventListener('drop', this._onDrop)
     this.transformControls.disconnect()
     this.scene.remove(this.transformControls.getHelper())
     this.clearFloor()
