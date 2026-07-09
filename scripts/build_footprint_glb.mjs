@@ -4,6 +4,8 @@ import path from 'node:path'
 import * as THREE from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 
+const BLOCK_MESH_Y = 0.001
+
 const ROOT = process.cwd()
 
 // Minimal FileReader polyfill for Node.js (GLTFExporter expects it).
@@ -32,9 +34,21 @@ if (typeof globalThis.FileReader === 'undefined') {
   }
 }
 
-const SRC_FLOORS_JSON = path.join(ROOT, 'src', 'data', 'generated', 'floor1.json')
-const PUBLIC_DIR = path.join(ROOT, 'public')
-const OUT_GLB = path.join(PUBLIC_DIR, 'floor-footprint.glb')
+function parseArgs(argv) {
+  const args = { json: null, out: null }
+  for (let i = 2; i < argv.length; i++) {
+    if (argv[i] === '--json' && argv[i + 1]) {
+      args.json = argv[++i]
+    } else if (argv[i] === '--out' && argv[i + 1]) {
+      args.out = argv[++i]
+    }
+  }
+  return args
+}
+
+const cli = parseArgs(process.argv)
+const SRC_FLOORS_JSON = cli.json ?? path.join(ROOT, 'src', 'data', 'generated', 'floor1.json')
+const OUT_GLB = cli.out ?? path.join(ROOT, 'public', 'floor-footprint.glb')
 
 const CATEGORY_COLORS = {
   shop: '#6db56d',
@@ -137,8 +151,8 @@ async function main() {
     mesh.userData.zoneId = zone.id
     mesh.name = String(zone.id)
 
-    // Make it sit on y=0 plane (matches UI label/selection logic).
-    mesh.position.y = footprintHeight / 2
+    // ExtrudeGeometry spans local y=[0, height]; place bottom on ground plane.
+    mesh.position.y = BLOCK_MESH_Y
     mesh.castShadow = true
     mesh.receiveShadow = true
     scene.add(mesh)
@@ -157,6 +171,7 @@ async function main() {
   })
 
   if (glb instanceof ArrayBuffer) {
+    fs.mkdirSync(path.dirname(OUT_GLB), { recursive: true })
     fs.writeFileSync(OUT_GLB, Buffer.from(glb))
   } else if (glb && glb.buffer instanceof ArrayBuffer) {
     fs.writeFileSync(OUT_GLB, Buffer.from(glb.buffer))

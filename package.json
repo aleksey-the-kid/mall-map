@@ -8,11 +8,15 @@
     "build": "vite build",
     "build:pages": "GITHUB_PAGES=true vite build",
     "preview": "vite preview",
-    "extract-plan": "python3 scripts/extract_colored_footprint.py python/data/green_city.png && node scripts/build_footprint_glb.mjs"
+    "extract-plan": "python3 scripts/extract_colored_footprint.py python/data/green_city.png && node scripts/build_footprint_glb.mjs",
+    "api": "uvicorn api.main:app --reload --port 8000",
+    "seed": "python3 scripts/seed_green_city.py"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
     "three": "^0.175.0",
-    "vue": "^3.5.13"
+    "vue": "^3.5.13",
+    "vue-router": "^4.6.4"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",

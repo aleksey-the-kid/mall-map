@@ -36,6 +36,18 @@ export const CATEGORY_COLORS = {
   stairs: '#e8e8e8',
 }
 
+export const CATEGORY_LABELS = {
+  shop: 'Магазин',
+  cafe: 'Кафе',
+  corridor: 'Коридор',
+  office: 'Офис',
+  service: 'Сервис',
+  entrance: 'Вход',
+  wc: 'Туалет',
+  escalator: 'Эскалатор',
+  stairs: 'Лестница',
+}
+
 export const COLORS = {
   top: '#f0f0f0',
   side: '#3d6b3d',

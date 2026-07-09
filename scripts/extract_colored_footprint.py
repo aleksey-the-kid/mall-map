@@ -7,6 +7,7 @@ Each green blob is one shop footprint. All green areas on the plan become zones.
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -17,7 +18,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON_DIR = ROOT / "python"
 PUBLIC_DIR = ROOT / "public"
-OUT_JSON = ROOT / "src" / "data" / "generated" / "floor1.json"
+DEFAULT_OUT_JSON = ROOT / "src" / "data" / "generated" / "floor1.json"
+DEFAULT_OUT_PLAN = PUBLIC_DIR / "floor-plan.png"
 
 DEFAULT_INPUT = PYTHON_DIR / "data" / "green_city.png"
 
@@ -115,8 +117,21 @@ def build_zone_entry(idx: int, approx_points_px: np.ndarray) -> dict:
     }
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Extract store footprints from a colored floor plan.")
+    parser.add_argument("input", nargs="?", default=str(DEFAULT_INPUT), help="Input PNG path")
+    parser.add_argument("--out-json", default=str(DEFAULT_OUT_JSON), help="Output JSON path")
+    parser.add_argument("--out-plan", default=str(DEFAULT_OUT_PLAN), help="Output plan PNG path")
+    parser.add_argument("--glb-name", default="footprint.glb", help="GLB filename stored in JSON metadata")
+    return parser.parse_args()
+
+
 def main() -> int:
-    src = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_INPUT
+    args = parse_args()
+    src = Path(args.input)
+    out_json = Path(args.out_json)
+    out_plan = Path(args.out_plan)
+
     if not src.exists():
         raise SystemExit(f"Cannot read input: {src}")
 
@@ -134,23 +149,24 @@ def main() -> int:
     data = {
         "planBounds": {"width": plan_width, "height": plan_height},
         "wallPxPerUnit": PX_PER_UNIT,
-        "footprintModel": "floor-footprint.glb",
+        "footprintModel": args.glb_name,
         "footprintHeight": FOOTPRINT_HEIGHT_METERS,
         "zones": zones,
     }
 
-    OUT_JSON.parent.mkdir(parents=True, exist_ok=True)
-    PUBLIC_DIR.mkdir(parents=True, exist_ok=True)
+    out_json.parent.mkdir(parents=True, exist_ok=True)
+    out_plan.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(OUT_JSON, "w", encoding="utf-8") as f:
+    with open(out_json, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-    cv2.imwrite(str(PUBLIC_DIR / "floor-plan.png"), img)
+    cv2.imwrite(str(out_plan), img)
 
     print(f"Input: {src}")
     print(f"Image: {w}x{h} px -> planBounds {plan_width}x{plan_height} units")
     print(f"Zones: {len(zones)}")
-    print(f"Written: {OUT_JSON}")
+    print(f"Written: {out_json}")
+    print(f"Written: {out_plan}")
     return 0
 
 

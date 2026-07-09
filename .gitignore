@@ -4,3 +4,7 @@ dist
 *.local
 __pycache__
 *.pyc
+.env
+.env.*
+!.env.example
+api/.env

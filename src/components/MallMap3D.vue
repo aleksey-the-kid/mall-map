@@ -1,25 +1,38 @@
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { MallMapRenderer } from '../lib/mallMapRenderer.js'
 
 const props = defineProps({
   floor: { type: Object, required: true },
   selectedZoneId: { type: String, default: null },
   showPlan: { type: Boolean, default: false },
+  adminMode: { type: Boolean, default: false },
+  hasEdits: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['zone-click', 'zone-hover'])
+const emit = defineEmits(['zone-click', 'zone-hover', 'zone-move'])
 
 const containerRef = ref(null)
 let renderer = null
 
+const useProcedural = computed(
+  () =>
+    props.adminMode ||
+    props.hasEdits ||
+    Boolean(props.floor?.zones?.length),
+)
+
+function loadCurrentFloor() {
+  if (!renderer || !props.floor) return
+  renderer.loadFloor(props.floor, {
+    showPlan: props.showPlan,
+    useProcedural: useProcedural.value,
+  })
+}
+
 watch(
-  () => props.floor,
-  (floor) => {
-    if (renderer && floor) {
-      renderer.loadFloor(floor, { showPlan: props.showPlan })
-    }
-  },
+  () => [props.floor?.id, props.floor?.zones?.length, props.showPlan, useProcedural.value],
+  () => loadCurrentFloor(),
 )
 
 watch(
@@ -29,10 +42,21 @@ watch(
 
 watch(
   () => props.showPlan,
+  () => loadCurrentFloor(),
+)
+
+watch(
+  () => props.adminMode,
+  (enabled) => {
+    renderer?.setAdminMode(enabled)
+    loadCurrentFloor()
+  },
+)
+
+watch(
+  () => props.hasEdits,
   () => {
-    if (renderer && props.floor) {
-      renderer.loadFloor(props.floor, { showPlan: props.showPlan })
-    }
+    if (!props.adminMode) loadCurrentFloor()
   },
 )
 
@@ -40,7 +64,9 @@ onMounted(() => {
   renderer = new MallMapRenderer(containerRef.value)
   renderer.onZoneClick = (id) => emit('zone-click', id)
   renderer.onZoneHover = (id) => emit('zone-hover', id)
-  renderer.loadFloor(props.floor, { showPlan: props.showPlan })
+  renderer.onZoneMove = (id, offset) => emit('zone-move', id, offset)
+  renderer.setAdminMode(props.adminMode)
+  loadCurrentFloor()
   if (props.selectedZoneId) renderer.setSelectedZone(props.selectedZoneId)
 })
 
@@ -64,7 +90,23 @@ function focusZone(zone) {
   }
 }
 
-defineExpose({ zoomIn, zoomOut, focusZone })
+function syncZone(zone) {
+  renderer?.syncZone(zone)
+}
+
+function setZoneOffset(zoneId, offset) {
+  renderer?.setZoneOffset(zoneId, offset)
+}
+
+function removeZone(zoneId) {
+  renderer?.removeZone(zoneId)
+}
+
+function reloadFloor() {
+  loadCurrentFloor()
+}
+
+defineExpose({ zoomIn, zoomOut, focusZone, syncZone, setZoneOffset, removeZone, reloadFloor })
 </script>
 
 <template>
