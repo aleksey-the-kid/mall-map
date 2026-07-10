@@ -8,7 +8,7 @@ function deepClone(value) {
 
 let saveTimer = null
 
-export function useFloorAdmin(floorRef, { useRemote = false } = {}) {
+export function useFloorAdmin(floorRef, { useRemote = false, getObjects = () => [] } = {}) {
   const zones = ref([])
   const originalSnapshot = ref([])
   const saving = ref(false)
@@ -54,7 +54,7 @@ export function useFloorAdmin(floorRef, { useRemote = false } = {}) {
       saving.value = true
       saveError.value = null
       try {
-        const floorJson = buildFloorJsonFromFloor(floor, zones.value)
+        const floorJson = buildFloorJsonFromFloor(floor, zones.value, getObjects())
         await api.updateFloorZones(floor.id, floorJson)
       } catch (err) {
         saveError.value = err.message
@@ -132,7 +132,7 @@ export function useFloorAdmin(floorRef, { useRemote = false } = {}) {
   function exportJson() {
     const floor = floorRef.value
     if (!floor) return
-    const payload = buildFloorJsonFromFloor(floor, zones.value)
+    const payload = buildFloorJsonFromFloor(floor, zones.value, getObjects())
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -160,5 +160,6 @@ export function useFloorAdmin(floorRef, { useRemote = false } = {}) {
     exportJson,
     resetFromFloor,
     commitSnapshot,
+    scheduleSave,
   }
 }

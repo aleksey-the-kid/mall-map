@@ -222,9 +222,9 @@ export function useMallData() {
   }
 }
 
-export function buildFloorJsonFromFloor(floor, zones) {
+export function buildFloorJsonFromFloor(floor, zones, objects = []) {
   const base = deepClone(floor.floorJson || {})
-  const { objects: _objects, ...rest } = base
+  const { objects: _objects, zones: _zones, ...rest } = base
   return {
     ...rest,
     planBounds: floor.planBounds ?? base.planBounds,
@@ -232,5 +232,6 @@ export function buildFloorJsonFromFloor(floor, zones) {
     footprintHeight: floor.footprintHeight ?? base.footprintHeight ?? 2.4,
     footprintModel: 'footprint.glb',
     zones,
+    objects,
   }
 }

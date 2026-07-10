@@ -43,6 +43,8 @@ const newFloorLabel = ref('')
 
 const floorForAdmin = computed(() => currentFloor.value)
 
+let getSceneObjects = () => []
+
 const {
   zones,
   hasEdits: hasZoneEdits,
@@ -55,21 +57,25 @@ const {
   resetAll: resetAllZones,
   exportJson,
   resetFromFloor,
-} = useFloorAdmin(floorForAdmin, { useRemote })
+  scheduleSave,
+} = useFloorAdmin(floorForAdmin, { useRemote, getObjects: () => getSceneObjects() })
 
 const {
   objects: sceneObjects,
+  hasEdits: hasObjectEdits,
   libraryAssets,
   addObject,
   updateObject,
   deleteObject: deleteSceneObject,
-  clearAll: clearAllSceneObjects,
+  resetAll: resetAllSceneObjects,
   resetFromFloor: resetSceneObjectsFromFloor,
   addCustomAsset,
   getAsset,
-} = useSceneObjects(floorForAdmin)
+} = useSceneObjects(floorForAdmin, { useRemote, onDirty: scheduleSave })
 
-const hasEdits = computed(() => hasZoneEdits.value)
+getSceneObjects = () => sceneObjects.value
+
+const hasEdits = computed(() => hasZoneEdits.value || hasObjectEdits.value)
 
 const renderableFloor = computed(() => {
   const floor = currentFloor.value
@@ -116,6 +122,11 @@ function onSceneObjectClick(id) {
 
 function onSceneObjectMove(id, position) {
   updateObject(id, { position })
+}
+
+function onUpdateSceneObject(patch) {
+  if (!selectedSceneObjectId.value) return
+  updateObject(selectedSceneObjectId.value, patch)
 }
 
 async function onSceneObjectDrop(assetId, position) {
@@ -211,7 +222,7 @@ function onResetZone() {
 function onResetAll() {
   if (!confirm('Сбросить все изменения к оригинальной модели?')) return
   resetAllZones()
-  clearAllSceneObjects()
+  resetAllSceneObjects()
   selectedZoneId.value = null
   selectedSceneObjectId.value = null
   mapRef.value?.reloadFloor()
@@ -431,6 +442,7 @@ watch(
           :has-edits="hasEdits"
           :default-height="renderableFloor?.footprintHeight ?? 2.4"
           @update-zone="onUpdateZone"
+          @update-scene-object="onUpdateSceneObject"
           @delete-zone="onDeleteZone"
           @reset-zone="onResetZone"
           @reset-all="onResetAll"

@@ -2,6 +2,8 @@
 import { computed } from 'vue'
 import { CATEGORY_COLORS } from '../data/floors.js'
 import { getZoneSize } from '../lib/zoneGeometry.js'
+import { SCENE_OBJECT_CATEGORIES } from '../lib/sceneObjectSchema.js'
+import TagsInput from './TagsInput.vue'
 
 const props = defineProps({
   zone: { type: Object, default: null },
@@ -13,6 +15,7 @@ const props = defineProps({
 
 const emit = defineEmits([
   'update-zone',
+  'update-scene-object',
   'delete-zone',
   'reset-zone',
   'reset-all',
@@ -81,6 +84,26 @@ const zoneOffsetZ = computed({
     })
   },
 })
+
+const sceneObjectName = computed({
+  get: () => props.sceneObject?.name ?? '',
+  set: (v) => emit('update-scene-object', { name: v }),
+})
+
+const sceneObjectCategory = computed({
+  get: () => props.sceneObject?.category ?? 'poi',
+  set: (v) => emit('update-scene-object', { category: v }),
+})
+
+const sceneObjectTags = computed({
+  get: () => props.sceneObject?.tags ?? [],
+  set: (v) => emit('update-scene-object', { tags: v }),
+})
+
+const sceneObjectDescription = computed({
+  get: () => props.sceneObject?.description ?? '',
+  set: (v) => emit('update-scene-object', { description: v }),
+})
 </script>
 
 <template>
@@ -116,7 +139,7 @@ const zoneOffsetZ = computed({
     </p>
 
     <div v-if="sceneObject" class="admin-panel__form">
-      <h3>Объект {{ sceneObject.id }}</h3>
+      <h3>{{ sceneObject.name || sceneObject.id }}</h3>
 
       <p class="admin-field__meta">
         Модель: {{ sceneObjectAsset?.name ?? sceneObject.assetId }}
@@ -126,6 +149,36 @@ const zoneOffsetZ = computed({
         Позиция: X {{ (sceneObject.position?.[0] ?? 0).toFixed(1) }},
         Z {{ (sceneObject.position?.[1] ?? 0).toFixed(1) }}
       </p>
+
+      <label class="admin-field">
+        <span>Название</span>
+        <input v-model="sceneObjectName" type="text" placeholder="Кофейня у входа" />
+      </label>
+
+      <label class="admin-field">
+        <span>Категория</span>
+        <select v-model="sceneObjectCategory" class="admin-field__select">
+          <option v-for="opt in SCENE_OBJECT_CATEGORIES" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </option>
+        </select>
+      </label>
+
+      <label class="admin-field">
+        <span>Теги</span>
+        <TagsInput v-model:tags="sceneObjectTags" />
+        <span class="admin-field__hint">Помогут найти объект через поиск: кофе, туалет, банкомат…</span>
+      </label>
+
+      <label class="admin-field">
+        <span>Описание</span>
+        <textarea
+          v-model="sceneObjectDescription"
+          class="admin-field__textarea"
+          rows="3"
+          placeholder="Короткое описание для поиска"
+        />
+      </label>
 
       <p class="admin-panel__hint">
         Двигайте объект стрелками гизмо (красная — X, синяя — Z).
@@ -309,12 +362,30 @@ const zoneOffsetZ = computed({
 }
 
 .admin-field input[type='text'],
-.admin-field input[type='number'] {
+.admin-field input[type='number'],
+.admin-field select,
+.admin-field textarea {
   padding: 8px 10px;
   border: 1px solid #ddd;
   border-radius: 8px;
   font-size: 13px;
   color: #1a1a1a;
+}
+
+.admin-field__select {
+  background: #fff;
+}
+
+.admin-field__textarea {
+  resize: vertical;
+  min-height: 72px;
+  font-family: inherit;
+}
+
+.admin-field__hint {
+  font-size: 11px;
+  color: #999;
+  line-height: 1.4;
 }
 
 .admin-field__row {

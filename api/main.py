@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .config import get_settings
+from .floor_sync import sync_floor_normalized_data
 from .pipeline import PipelineError, process_plan_image
 from .supabase_client import get_supabase, storage_public_url
 
@@ -167,6 +168,7 @@ def _run_upload_pipeline(floor_id: str, image_bytes: bytes) -> None:
                 "error_message": None,
             }
         ).eq("id", floor_id).execute()
+        sync_floor_normalized_data(sb, floor_id, floor_json)
     except (PipelineError, Exception) as exc:
         sb.table("floors").update(
             {"status": "error", "error_message": str(exc)}
@@ -227,4 +229,5 @@ def update_floor_zones(
         .eq("id", floor_id)
         .execute()
     )
+    sync_floor_normalized_data(sb, floor_id, body.floor_json)
     return _floor_out(result.data[0])

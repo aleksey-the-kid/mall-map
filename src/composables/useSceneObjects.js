@@ -1,5 +1,6 @@
 import { ref, computed, watch } from 'vue'
 import { BUILTIN_SCENE_ASSETS } from '../data/sceneAssets.js'
+import { normalizeSceneObject } from '../lib/sceneObjectSchema.js'
 
 function deepClone(value) {
   return JSON.parse(JSON.stringify(value))
@@ -26,16 +27,31 @@ function saveToStorage(key, value) {
   localStorage.setItem(key, JSON.stringify(value))
 }
 
-export function useSceneObjects(floorRef) {
+function normalizeObjectList(rawObjects, getAsset) {
+  return (rawObjects ?? []).map((raw, index) => {
+    const asset = getAsset?.(raw.assetId)
+    return normalizeSceneObject(raw, {
+      assetName: asset?.name,
+      objectNum: index + 1,
+    })
+  })
+}
+
+export function useSceneObjects(floorRef, { useRemote = false, onDirty } = {}) {
   const objects = ref([])
+  const originalSnapshot = ref([])
   const customAssets = ref([])
   const loadedFloorId = ref(null)
 
   const libraryAssets = computed(() => [...BUILTIN_SCENE_ASSETS, ...customAssets.value])
 
-  function persistObjects() {
+  function getAsset(assetId) {
+    return libraryAssets.value.find((a) => a.id === assetId) ?? null
+  }
+
+  function persistObjectsLocal() {
     const floor = floorRef.value
-    if (!floor?.id) return
+    if (!floor?.id || useRemote) return
     saveToStorage(objectsKey(floor.id), objects.value)
   }
 
@@ -48,21 +64,36 @@ export function useSceneObjects(floorRef) {
     saveToStorage(assetsKey(floor.id), persistable)
   }
 
+  function loadObjectsForFloor(floor) {
+    const fromDb = floor.sceneObjects ?? floor.floorJson?.objects ?? []
+
+    if (useRemote) {
+      return normalizeObjectList(fromDb, getAsset)
+    }
+
+    const fromStorage = loadFromStorage(objectsKey(floor.id))
+    if (fromStorage.length) {
+      return normalizeObjectList(fromStorage, getAsset)
+    }
+    if (fromDb.length) {
+      const normalized = normalizeObjectList(fromDb, getAsset)
+      saveToStorage(objectsKey(floor.id), normalized)
+      return normalized
+    }
+    return []
+  }
+
   function resetFromFloor(floor) {
     if (!floor) {
       objects.value = []
+      originalSnapshot.value = []
       customAssets.value = []
       loadedFloorId.value = null
       return
     }
 
-    let snapshot = loadFromStorage(objectsKey(floor.id))
-    const legacyFromDb = floor.sceneObjects ?? floor.floorJson?.objects ?? []
-    if (!snapshot.length && legacyFromDb.length) {
-      snapshot = deepClone(legacyFromDb)
-      saveToStorage(objectsKey(floor.id), snapshot)
-    }
-
+    const snapshot = loadObjectsForFloor(floor)
+    originalSnapshot.value = deepClone(snapshot)
     objects.value = deepClone(snapshot)
     customAssets.value = loadFromStorage(assetsKey(floor.id))
     loadedFloorId.value = floor.id
@@ -77,42 +108,71 @@ export function useSceneObjects(floorRef) {
     { immediate: true },
   )
 
+  const hasEdits = computed(
+    () => JSON.stringify(objects.value) !== JSON.stringify(originalSnapshot.value),
+  )
+
   function findObjectIndex(id) {
     return objects.value.findIndex((o) => o.id === id)
   }
 
+  function markDirty() {
+    persistObjectsLocal()
+    onDirty?.()
+  }
+
   function addObject({ assetId, position }) {
+    const asset = getAsset(assetId)
     const maxNum = objects.value.reduce((max, o) => {
       const n = Number.parseInt(String(o.id).replace(/\D/g, ''), 10) || 0
       return Math.max(max, n)
     }, 0)
-    const id = `obj-${maxNum + 1}`
-    const entry = {
-      id,
-      assetId,
-      position: [...position],
-    }
+    const objectNum = maxNum + 1
+    const id = `obj-${objectNum}`
+    const entry = normalizeSceneObject(
+      {
+        id,
+        assetId,
+        position: [...position],
+        name: asset?.name,
+      },
+      { assetName: asset?.name, objectNum },
+    )
     objects.value = [...objects.value, entry]
-    persistObjects()
+    markDirty()
     return id
   }
 
   function updateObject(id, patch) {
     const idx = findObjectIndex(id)
     if (idx === -1) return
-    objects.value[idx] = { ...objects.value[idx], ...patch }
+    const current = objects.value[idx]
+    const next = normalizeSceneObject(
+      { ...current, ...patch },
+      { assetName: getAsset(current.assetId)?.name },
+    )
+    objects.value[idx] = next
     objects.value = [...objects.value]
-    persistObjects()
+    markDirty()
   }
 
   function deleteObject(id) {
     objects.value = objects.value.filter((o) => o.id !== id)
-    persistObjects()
+    markDirty()
+  }
+
+  function resetAll() {
+    objects.value = deepClone(originalSnapshot.value)
+    markDirty()
   }
 
   function clearAll() {
     objects.value = []
-    persistObjects()
+    markDirty()
+  }
+
+  function commitSnapshot() {
+    originalSnapshot.value = deepClone(objects.value)
   }
 
   function addCustomAsset(file) {
@@ -132,19 +192,19 @@ export function useSceneObjects(floorRef) {
     return asset
   }
 
-  function getAsset(assetId) {
-    return libraryAssets.value.find((a) => a.id === assetId) ?? null
-  }
-
   return {
     objects,
+    originalSnapshot,
+    hasEdits,
     customAssets,
     libraryAssets,
     addObject,
     updateObject,
     deleteObject,
+    resetAll,
     clearAll,
     resetFromFloor,
+    commitSnapshot,
     addCustomAsset,
     getAsset,
   }
