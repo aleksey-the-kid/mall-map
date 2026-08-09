@@ -1,5 +1,5 @@
 import { ref, computed, watch } from 'vue'
-import { isSupabaseConfigured, storagePublicUrl } from '../lib/supabase.js'
+import { storagePublicUrl } from '../lib/supabase.js'
 import { api, isApiConfigured } from '../lib/api.js'
 import {
   FLOORS as STATIC_FLOORS,
@@ -62,7 +62,7 @@ export function useMallData() {
   const loading = ref(false)
   const error = ref(null)
 
-  const useRemote = isSupabaseConfigured && isApiConfigured
+  const useRemote = isApiConfigured
 
   const currentMall = computed(() =>
     malls.value.find((m) => m.id === currentMallId.value) ?? null,

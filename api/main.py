@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from .config import get_settings
 from .floor_sync import sync_floor_normalized_data
-from .pipeline import PipelineError, process_plan_image
+from .pipeline import PipelineError, extract_zones_from_image, process_plan_image
 from .supabase_client import get_supabase, storage_public_url
 
 app = FastAPI(title="Mall Map API", version="1.0.0")
@@ -231,3 +231,43 @@ def update_floor_zones(
     )
     sync_floor_normalized_data(sb, floor_id, body.floor_json)
     return _floor_out(result.data[0])
+
+
+class DetectShopsOut(BaseModel):
+    zones: list[dict[str, Any]]
+    plan_bounds: dict[str, float] | None = None
+    wall_px_per_unit: float | None = None
+    count: int
+
+
+@app.post("/floors/{floor_id}/detect-shops", response_model=DetectShopsOut)
+def detect_shops(floor_id: str) -> DetectShopsOut:
+    """Re-run accent-color shop detection on the stored plan image."""
+    sb = get_supabase()
+    result = sb.table("floors").select("*").eq("id", floor_id).execute()
+    if not result.data:
+        raise HTTPException(404, "Floor not found")
+    row = result.data[0]
+    plan_path = row.get("plan_image_path")
+    if not plan_path:
+        raise HTTPException(400, "Floor has no plan image")
+    if row.get("status") == "processing":
+        raise HTTPException(409, "Floor is already being processed")
+
+    try:
+        downloaded = sb.storage.from_("floor-assets").download(plan_path)
+    except Exception as exc:
+        raise HTTPException(500, f"Failed to download plan: {exc}") from exc
+
+    try:
+        floor_json = extract_zones_from_image(downloaded)
+    except PipelineError as exc:
+        raise HTTPException(500, str(exc)) from exc
+
+    zones = floor_json.get("zones") or []
+    return DetectShopsOut(
+        zones=zones,
+        plan_bounds=floor_json.get("planBounds"),
+        wall_px_per_unit=floor_json.get("wallPxPerUnit"),
+        count=len(zones),
+    )

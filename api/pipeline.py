@@ -62,3 +62,33 @@ def process_plan_image(image_bytes: bytes) -> dict:
             "plan_bytes": out_plan.read_bytes(),
             "glb_bytes": out_glb.read_bytes(),
         }
+
+
+def extract_zones_from_image(image_bytes: bytes) -> dict:
+    """Run OpenCV extract only; return floor_json (zones + planBounds)."""
+    settings = get_settings()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp)
+        input_path = work / "input.png"
+        out_json = work / "floor.json"
+        out_plan = work / "plan.png"
+
+        input_path.write_bytes(image_bytes)
+
+        extract_cmd = [
+            settings.python_bin,
+            str(EXTRACT_SCRIPT),
+            str(input_path),
+            "--out-json",
+            str(out_json),
+            "--out-plan",
+            str(out_plan),
+            "--glb-name",
+            "footprint.glb",
+        ]
+        result = subprocess.run(extract_cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise PipelineError(result.stderr or result.stdout or "Extraction failed")
+
+        return json.loads(out_json.read_text(encoding="utf-8"))

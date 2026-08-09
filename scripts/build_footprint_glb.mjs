@@ -53,7 +53,6 @@ const OUT_GLB = cli.out ?? path.join(ROOT, 'public', 'floor-footprint.glb')
 const CATEGORY_COLORS = {
   shop: '#6db56d',
   cafe: '#f5e6d3',
-  corridor: '#ebebeb',
   office: '#e8e8e8',
   service: '#e0e0e0',
   entrance: '#d4edda',

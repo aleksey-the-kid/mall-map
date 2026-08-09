@@ -40,20 +40,20 @@ create policy "malls_public_read" on public.malls
 create policy "floors_public_read" on public.floors
   for select using (true);
 
--- Authenticated users can manage malls and floors
-create policy "malls_auth_write" on public.malls
-  for all using (auth.role() = 'authenticated')
-  with check (auth.role() = 'authenticated');
+-- Public write (no auth)
+create policy "malls_public_write" on public.malls
+  for all using (true)
+  with check (true);
 
-create policy "floors_auth_write" on public.floors
-  for all using (auth.role() = 'authenticated')
-  with check (auth.role() = 'authenticated');
+create policy "floors_public_write" on public.floors
+  for all using (true)
+  with check (true);
 
 -- Storage: public read
 create policy "floor_assets_public_read" on storage.objects
   for select using (bucket_id = 'floor-assets');
 
--- Storage: authenticated write
-create policy "floor_assets_auth_write" on storage.objects
-  for all using (bucket_id = 'floor-assets' and auth.role() = 'authenticated')
-  with check (bucket_id = 'floor-assets' and auth.role() = 'authenticated');
+-- Storage: public write (no auth)
+create policy "floor_assets_public_write" on storage.objects
+  for all using (bucket_id = 'floor-assets')
+  with check (bucket_id = 'floor-assets');

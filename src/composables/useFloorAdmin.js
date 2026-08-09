@@ -72,18 +72,20 @@ export function useFloorAdmin(floorRef, { useRemote = false, getObjects = () => 
     scheduleSave()
   }
 
+  function nextId() {
+    return String(
+      zones.value.reduce((max, z) => Math.max(max, Number.parseInt(z.id, 10) || 0), 0) + 1,
+    )
+  }
+
   function addZone() {
     const floor = floorRef.value
     if (!floor?.planBounds) return null
-    const maxId = zones.value.reduce(
-      (max, z) => Math.max(max, Number.parseInt(z.id, 10) || 0),
-      0,
-    )
     const { width, height } = floor.planBounds
     const cx = width / 2
     const cy = height / 2
     const size = 4
-    const id = String(maxId + 1)
+    const id = nextId()
     zones.value = [
       ...zones.value,
       {
@@ -98,12 +100,17 @@ export function useFloorAdmin(floorRef, { useRemote = false, getObjects = () => 
         ],
         height: floor.footprintHeight ?? 2.4,
         size: [size * 2, size * 2],
-        color: '#6db56d',
+        color: '#2563eb',
         offset: [0, 0],
       },
     ]
     scheduleSave()
     return id
+  }
+
+  function setZones(nextZones, { save = true } = {}) {
+    zones.value = deepClone(nextZones ?? [])
+    if (save) scheduleSave()
   }
 
   function deleteZone(id) {
@@ -154,6 +161,7 @@ export function useFloorAdmin(floorRef, { useRemote = false, getObjects = () => 
     saveError,
     updateZone,
     addZone,
+    setZones,
     deleteZone,
     resetZone,
     resetAll,

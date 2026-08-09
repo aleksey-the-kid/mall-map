@@ -40,13 +40,13 @@ create policy "zones_public_read" on public.zones
 create policy "scene_objects_public_read" on public.scene_objects
   for select using (true);
 
-create policy "zones_auth_write" on public.zones
-  for all using (auth.role() = 'authenticated')
-  with check (auth.role() = 'authenticated');
+create policy "zones_public_write" on public.zones
+  for all using (true)
+  with check (true);
 
-create policy "scene_objects_auth_write" on public.scene_objects
-  for all using (auth.role() = 'authenticated')
-  with check (auth.role() = 'authenticated');
+create policy "scene_objects_public_write" on public.scene_objects
+  for all using (true)
+  with check (true);
 
 -- Backfill from existing floor_json
 insert into public.zones (floor_id, external_id, name, category, description, tags, geometry)

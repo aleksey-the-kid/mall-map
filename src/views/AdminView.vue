@@ -1,13 +1,14 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import MallMap3D from '../components/MallMap3D.vue'
 import AdminPanel from '../components/AdminPanel.vue'
-import ObjectLibraryPanel from '../components/ObjectLibraryPanel.vue'
-import { findZoneById } from '../data/floors.js'
+import FloorPlan2DEditor from '../components/FloorPlan2DEditor.vue'
 import { useMallData } from '../composables/useMallData.js'
 import { useFloorAdmin } from '../composables/useFloorAdmin.js'
 import { useSceneObjects } from '../composables/useSceneObjects.js'
+import { api } from '../lib/api.js'
+import { getZonePlanBBox } from '../lib/zoneGeometry.js'
 
 const {
   malls,
@@ -29,8 +30,6 @@ const {
 } = useMallData()
 
 const selectedZoneId = ref(null)
-const selectedSceneObjectId = ref(null)
-const panelMode = ref('zones')
 const showPlan = ref(true)
 const mapRef = ref(null)
 const uploading = ref(false)
@@ -40,6 +39,9 @@ const showCreateFloor = ref(false)
 const newMallName = ref('')
 const newMallAddress = ref('')
 const newFloorLabel = ref('')
+const viewMode = ref('2d')
+const detecting = ref(false)
+const detectMessage = ref('')
 
 const floorForAdmin = computed(() => currentFloor.value)
 
@@ -51,9 +53,8 @@ const {
   saving,
   saveError,
   updateZone,
-  addZone,
+  setZones,
   deleteZone,
-  resetZone,
   resetAll: resetAllZones,
   exportJson,
   resetFromFloor,
@@ -63,13 +64,8 @@ const {
 const {
   objects: sceneObjects,
   hasEdits: hasObjectEdits,
-  libraryAssets,
-  addObject,
-  updateObject,
-  deleteObject: deleteSceneObject,
   resetAll: resetAllSceneObjects,
   resetFromFloor: resetSceneObjectsFromFloor,
-  addCustomAsset,
   getAsset,
 } = useSceneObjects(floorForAdmin, { useRemote, onDirty: scheduleSave })
 
@@ -84,17 +80,9 @@ const renderableFloor = computed(() => {
 })
 
 const selectedZone = computed(() =>
-  selectedZoneId.value ? findZoneById(renderableFloor.value, selectedZoneId.value) : null,
-)
-
-const selectedSceneObject = computed(() =>
-  selectedSceneObjectId.value
-    ? sceneObjects.value.find((o) => o.id === selectedSceneObjectId.value) ?? null
+  selectedZoneId.value
+    ? zones.value.find((z) => z.id === selectedZoneId.value) ?? null
     : null,
-)
-
-const selectedSceneObjectAsset = computed(() =>
-  selectedSceneObject.value ? getAsset(selectedSceneObject.value.assetId) : null,
 )
 
 const floorReady = computed(() => currentFloor.value?.status === 'ready')
@@ -103,120 +91,41 @@ const floorEmpty = computed(() =>
 )
 const floorProcessing = computed(() => currentFloor.value?.status === 'processing')
 
+const canDetectShops = computed(
+  () => useRemote && Boolean(currentFloor.value?.planImage) && floorReady.value,
+)
+
 onMounted(() => {
   loadMalls()
 })
 
 function onZoneClick(id) {
   selectedZoneId.value = id
-  if (id) selectedSceneObjectId.value = null
-}
-
-function onSceneObjectClick(id) {
-  selectedSceneObjectId.value = id
-  if (id) {
-    selectedZoneId.value = null
-    panelMode.value = 'zones'
-  }
-}
-
-function onSceneObjectMove(id, position) {
-  updateObject(id, { position })
-}
-
-function onUpdateSceneObject(patch) {
-  if (!selectedSceneObjectId.value) return
-  updateObject(selectedSceneObjectId.value, patch)
-}
-
-async function onSceneObjectDrop(assetId, position) {
-  const asset = getAsset(assetId)
-  if (!asset) return
-  const id = addObject({ assetId, position })
-  selectedSceneObjectId.value = id
-  selectedZoneId.value = null
-  await mapRef.value?.addSceneObject({ id, assetId, position }, asset)
-}
-
-function onOpenObjectLibrary() {
-  panelMode.value = 'objects'
-}
-
-function onCloseObjectLibrary() {
-  panelMode.value = 'zones'
-}
-
-function onUploadGlb(file) {
-  addCustomAsset(file)
-}
-
-function onDeleteSceneObject() {
-  if (!selectedSceneObjectId.value) return
-  const id = selectedSceneObjectId.value
-  deleteSceneObject(id)
-  mapRef.value?.removeSceneObject(id)
-  selectedSceneObjectId.value = null
 }
 
 function onSelectMall(id) {
   setMall(id)
   selectedZoneId.value = null
-  selectedSceneObjectId.value = null
-  panelMode.value = 'zones'
+  detectMessage.value = ''
 }
 
 function onSelectFloor(id) {
   setFloor(id)
   selectedZoneId.value = null
-  selectedSceneObjectId.value = null
-  panelMode.value = 'zones'
+  detectMessage.value = ''
 }
 
 function onUpdateZone(patch) {
   if (!selectedZoneId.value) return
+  if (viewMode.value === '3d') return
   updateZone(selectedZoneId.value, patch)
-  if (patch.offset) {
-    mapRef.value?.setZoneOffset(selectedZoneId.value, patch.offset)
-    return
-  }
-  const zone = findZoneById(renderableFloor.value, selectedZoneId.value)
-  if (zone) mapRef.value?.syncZone(zone)
-}
-
-function onZoneMove(id, offset) {
-  updateZone(id, { offset })
-}
-
-function onAddZone() {
-  const id = addZone()
-  if (!id) return
-  selectedZoneId.value = id
-  const zone = findZoneById(renderableFloor.value, id)
-  if (zone) {
-    mapRef.value?.syncZone(zone)
-    mapRef.value?.focusZone(zone)
-  }
 }
 
 function onDeleteZone() {
-  if (!selectedZoneId.value) return
+  if (!selectedZoneId.value || viewMode.value === '3d') return
   const id = selectedZoneId.value
   deleteZone(id)
-  mapRef.value?.removeZone(id)
   selectedZoneId.value = null
-}
-
-function onResetZone() {
-  if (!selectedZoneId.value) return
-  const id = selectedZoneId.value
-  resetZone(id)
-  const zone = findZoneById(renderableFloor.value, id)
-  if (zone) {
-    mapRef.value?.syncZone(zone)
-  } else {
-    mapRef.value?.removeZone(id)
-    selectedZoneId.value = null
-  }
 }
 
 function onResetAll() {
@@ -224,16 +133,50 @@ function onResetAll() {
   resetAllZones()
   resetAllSceneObjects()
   selectedZoneId.value = null
-  selectedSceneObjectId.value = null
+  detectMessage.value = ''
   mapRef.value?.reloadFloor()
 }
 
-function isOffsetOnlyChange(prev, next) {
-  const prevCopy = { ...prev }
-  const nextCopy = { ...next }
-  delete prevCopy.offset
-  delete nextCopy.offset
-  return JSON.stringify(prevCopy) === JSON.stringify(nextCopy)
+function enrichDetectedZones(detected) {
+  const height = currentFloor.value?.footprintHeight ?? 2.4
+  return detected.map((z) => {
+    const points = z.points ?? []
+    const bbox = points.length ? getZonePlanBBox(points) : { width: 0, depth: 0 }
+    return {
+      ...z,
+      category: z.category ?? 'shop',
+      height: z.height ?? height,
+      color: z.color ?? '#2563eb',
+      offset: z.offset ?? [0, 0],
+      size: z.size ?? [bbox.width, bbox.depth],
+    }
+  })
+}
+
+function onPlanZonesChange(nextZones) {
+  setZones(nextZones)
+}
+
+async function onDetectShops() {
+  if (!currentFloorId.value || !canDetectShops.value) return
+  if (zones.value.length) {
+    const ok = confirm('Заменить все текущие зоны результатом поиска магазинов?')
+    if (!ok) return
+  }
+  detecting.value = true
+  detectMessage.value = ''
+  try {
+    const result = await api.detectShops(currentFloorId.value)
+    setZones(enrichDetectedZones(result.zones || []))
+    selectedZoneId.value = null
+    detectMessage.value = result.count
+      ? `Найдено магазинов: ${result.count}`
+      : 'Магазины не найдены'
+  } catch (err) {
+    detectMessage.value = err.message || 'Ошибка поиска'
+  } finally {
+    detecting.value = false
+  }
 }
 
 async function onCreateMall() {
@@ -261,8 +204,8 @@ async function onPlanUpload(event) {
     resetFromFloor(floor)
     resetSceneObjectsFromFloor(floor)
     selectedZoneId.value = null
-    selectedSceneObjectId.value = null
-    panelMode.value = 'zones'
+    detectMessage.value = ''
+    viewMode.value = '2d'
     mapRef.value?.reloadFloor()
   } catch (err) {
     uploadError.value = err.message
@@ -271,25 +214,6 @@ async function onPlanUpload(event) {
     event.target.value = ''
   }
 }
-
-watch(
-  () => zones.value,
-  (newZones, oldZones) => {
-    if (!mapRef.value || !oldZones) return
-    const oldIds = new Set(oldZones.map((z) => z.id))
-    const newIds = new Set(newZones.map((z) => z.id))
-    for (const id of oldIds) {
-      if (!newIds.has(id)) mapRef.value.removeZone(id)
-    }
-    for (const zone of newZones) {
-      const prev = oldZones.find((z) => z.id === zone.id)
-      if (!prev || JSON.stringify(prev) === JSON.stringify(zone)) continue
-      if (isOffsetOnlyChange(prev, zone)) continue
-      mapRef.value.syncZone(zone)
-    }
-  },
-  { deep: true },
-)
 </script>
 
 <template>
@@ -376,9 +300,30 @@ watch(
         </div>
 
         <label class="plan-toggle">
-          <input v-model="showPlan" type="checkbox" :disabled="!floorReady" />
+          <input v-model="showPlan" type="checkbox" :disabled="!floorReady || viewMode !== '3d'" />
           План подложка
         </label>
+
+        <div class="view-toggle" role="group" aria-label="Режим просмотра">
+          <button
+            type="button"
+            class="view-toggle__btn"
+            :class="{ 'view-toggle__btn--active': viewMode === '3d' }"
+            :disabled="!floorReady"
+            @click="viewMode = '3d'"
+          >
+            3D
+          </button>
+          <button
+            type="button"
+            class="view-toggle__btn"
+            :class="{ 'view-toggle__btn--active': viewMode === '2d' }"
+            :disabled="!floorReady"
+            @click="viewMode = '2d'"
+          >
+            План 2D
+          </button>
+        </div>
       </div>
 
       <p v-if="dataError" class="banner banner--error">{{ dataError }}</p>
@@ -388,7 +333,7 @@ watch(
       <div v-if="floorEmpty && !floorProcessing" class="upload-panel">
         <h3>Загрузите план этажа</h3>
         <p v-if="!useRemote" class="banner banner--error">
-          Настройте VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY и VITE_API_URL для загрузки планов.
+          Настройте VITE_API_URL для загрузки планов.
         </p>
         <template v-else>
           <p>PNG с зелёными зонами магазинов (как green_city). После загрузки сгенерируется 3D-модель.</p>
@@ -410,53 +355,53 @@ watch(
 
       <div v-else class="content">
         <div class="map-wrap">
-          <MallMap3D
-            v-if="renderableFloor"
-            ref="mapRef"
-            :floor="renderableFloor"
+          <FloorPlan2DEditor
+            v-if="viewMode === '2d'"
+            :plan-image="currentFloor?.planImage"
+            :plan-bounds="currentFloor?.planBounds"
+            :wall-px-per-unit="currentFloor?.wallPxPerUnit ?? 10"
+            :zones="zones"
             :selected-zone-id="selectedZoneId"
-            :selected-scene-object-id="selectedSceneObjectId"
-            :scene-objects="sceneObjects"
-            :resolve-scene-asset="getAsset"
-            :show-plan="showPlan"
-            :admin-mode="true"
-            :has-edits="hasEdits"
-            @zone-click="onZoneClick"
-            @zone-move="onZoneMove"
-            @scene-object-click="onSceneObjectClick"
-            @scene-object-move="onSceneObjectMove"
-            @scene-object-drop="onSceneObjectDrop"
+            :detecting="detecting"
+            :can-detect="canDetectShops"
+            :status-message="detectMessage"
+            :default-height="renderableFloor?.footprintHeight ?? 2.4"
+            @select="onZoneClick"
+            @zones-change="onPlanZonesChange"
+            @detect="onDetectShops"
+            @delete-selected="onDeleteZone"
           />
 
-          <div class="zoom-controls">
-            <button class="zoom-btn" title="Приблизить" @click="mapRef?.zoomIn()">+</button>
-            <button class="zoom-btn" title="Отдалить" @click="mapRef?.zoomOut()">−</button>
-          </div>
+          <template v-else>
+            <MallMap3D
+              v-if="renderableFloor"
+              ref="mapRef"
+              :floor="renderableFloor"
+              :selected-zone-id="selectedZoneId"
+              :selected-scene-object-id="null"
+              :scene-objects="sceneObjects"
+              :resolve-scene-asset="getAsset"
+              :show-plan="showPlan"
+              :admin-mode="false"
+              :has-edits="false"
+              @zone-click="onZoneClick"
+            />
+
+            <div class="zoom-controls">
+              <button class="zoom-btn" title="Приблизить" @click="mapRef?.zoomIn()">+</button>
+              <button class="zoom-btn" title="Отдалить" @click="mapRef?.zoomOut()">−</button>
+            </div>
+          </template>
         </div>
 
         <AdminPanel
-          v-if="panelMode === 'zones'"
           :zone="selectedZone"
-          :scene-object="selectedSceneObject"
-          :scene-object-asset="selectedSceneObjectAsset"
           :has-edits="hasEdits"
-          :default-height="renderableFloor?.footprintHeight ?? 2.4"
+          :editor-mode="viewMode"
           @update-zone="onUpdateZone"
-          @update-scene-object="onUpdateSceneObject"
           @delete-zone="onDeleteZone"
-          @reset-zone="onResetZone"
           @reset-all="onResetAll"
-          @add-zone="onAddZone"
-          @add-object="onOpenObjectLibrary"
-          @delete-scene-object="onDeleteSceneObject"
           @export-json="exportJson"
-        />
-
-        <ObjectLibraryPanel
-          v-else
-          :assets="libraryAssets"
-          @back="onCloseObjectLibrary"
-          @upload-glb="onUploadGlb"
         />
       </div>
     </main>
@@ -590,6 +535,32 @@ watch(
   justify-content: space-between;
   padding: 12px 24px;
   flex-shrink: 0;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.view-toggle {
+  display: flex;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.view-toggle__btn {
+  padding: 7px 12px;
+  border: none;
+  background: #fff;
+  font-size: 13px;
+  color: #444;
+}
+
+.view-toggle__btn--active {
+  background: #1a1a1a;
+  color: #fff;
+}
+
+.view-toggle__btn:disabled {
+  opacity: 0.45;
 }
 
 .floor-bar {
@@ -691,6 +662,8 @@ watch(
   overflow: hidden;
   background: #f0f0f0;
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
 }
 
 .zoom-controls {

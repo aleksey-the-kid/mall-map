@@ -27,7 +27,6 @@ export const FLOORS = [
 export const CATEGORY_COLORS = {
   shop: '#6db56d',
   cafe: '#f5e6d3',
-  corridor: '#ebebeb',
   office: '#e8e8e8',
   service: '#e0e0e0',
   entrance: '#d4edda',
@@ -39,7 +38,6 @@ export const CATEGORY_COLORS = {
 export const CATEGORY_LABELS = {
   shop: 'Магазин',
   cafe: 'Кафе',
-  corridor: 'Коридор',
   office: 'Офис',
   service: 'Сервис',
   entrance: 'Вход',

@@ -1,125 +1,58 @@
 <script setup>
 import { computed } from 'vue'
-import { CATEGORY_COLORS } from '../data/floors.js'
-import { getZoneSize } from '../lib/zoneGeometry.js'
-import { SCENE_OBJECT_CATEGORIES } from '../lib/sceneObjectSchema.js'
+import { CATEGORY_LABELS } from '../data/floors.js'
 import TagsInput from './TagsInput.vue'
 
 const props = defineProps({
   zone: { type: Object, default: null },
-  sceneObject: { type: Object, default: null },
-  sceneObjectAsset: { type: Object, default: null },
   hasEdits: { type: Boolean, default: false },
-  defaultHeight: { type: Number, default: 2.4 },
+  /** '2d' = edit metadata; '3d' = preview only */
+  editorMode: { type: String, default: '3d' },
 })
 
 const emit = defineEmits([
   'update-zone',
-  'update-scene-object',
   'delete-zone',
-  'reset-zone',
   'reset-all',
-  'add-zone',
-  'add-object',
-  'delete-scene-object',
   'export-json',
 ])
 
-const OFFSET_MIN = -30
-const OFFSET_MAX = 30
-
-function clampOffset(value) {
-  return Math.min(OFFSET_MAX, Math.max(OFFSET_MIN, Number(value) || 0))
-}
-
-const zoneHeight = computed({
-  get: () => props.zone?.height ?? props.defaultHeight,
-  set: (v) => emit('update-zone', { height: Number(v) }),
-})
-
-const zoneColor = computed({
-  get: () => props.zone?.color ?? CATEGORY_COLORS[props.zone?.category] ?? '#6db56d',
-  set: (v) => emit('update-zone', { color: v }),
-})
+const is2d = computed(() => props.editorMode === '2d')
+const isPreview = computed(() => props.editorMode === '3d')
+const categoryOptions = Object.entries(CATEGORY_LABELS).map(([value, label]) => ({ value, label }))
+const categoryLabel = computed(
+  () => CATEGORY_LABELS[props.zone?.category] ?? props.zone?.category ?? '—',
+)
 
 const zoneName = computed({
   get: () => props.zone?.name ?? '',
   set: (v) => emit('update-zone', { name: v }),
 })
 
-const zoneWidth = computed({
-  get: () => (props.zone ? getZoneSize(props.zone)[0] : 0),
-  set: (v) => {
-    if (!props.zone) return
-    const [, depth] = getZoneSize(props.zone)
-    emit('update-zone', { size: [Math.max(0.5, Number(v)), depth] })
-  },
+const zoneCategory = computed({
+  get: () => props.zone?.category ?? 'shop',
+  set: (v) => emit('update-zone', { category: v }),
 })
 
-const zoneDepth = computed({
-  get: () => (props.zone ? getZoneSize(props.zone)[1] : 0),
-  set: (v) => {
-    if (!props.zone) return
-    const [width] = getZoneSize(props.zone)
-    emit('update-zone', { size: [width, Math.max(0.5, Number(v))] })
-  },
+const zoneTags = computed({
+  get: () => props.zone?.tags ?? [],
+  set: (v) => emit('update-zone', { tags: v }),
 })
 
-const zoneOffsetX = computed({
-  get: () => props.zone?.offset?.[0] ?? 0,
-  set: (v) => {
-    if (!props.zone) return
-    emit('update-zone', {
-      offset: [clampOffset(v), props.zone?.offset?.[1] ?? 0],
-    })
-  },
-})
-
-const zoneOffsetZ = computed({
-  get: () => props.zone?.offset?.[1] ?? 0,
-  set: (v) => {
-    if (!props.zone) return
-    emit('update-zone', {
-      offset: [props.zone?.offset?.[0] ?? 0, clampOffset(v)],
-    })
-  },
-})
-
-const sceneObjectName = computed({
-  get: () => props.sceneObject?.name ?? '',
-  set: (v) => emit('update-scene-object', { name: v }),
-})
-
-const sceneObjectCategory = computed({
-  get: () => props.sceneObject?.category ?? 'poi',
-  set: (v) => emit('update-scene-object', { category: v }),
-})
-
-const sceneObjectTags = computed({
-  get: () => props.sceneObject?.tags ?? [],
-  set: (v) => emit('update-scene-object', { tags: v }),
-})
-
-const sceneObjectDescription = computed({
-  get: () => props.sceneObject?.description ?? '',
-  set: (v) => emit('update-scene-object', { description: v }),
+const zoneDescription = computed({
+  get: () => props.zone?.description ?? '',
+  set: (v) => emit('update-zone', { description: v }),
 })
 </script>
 
 <template>
   <aside class="admin-panel">
     <div class="admin-panel__header">
-      <h2>Админка</h2>
-      <span v-if="hasEdits" class="admin-panel__badge">Есть изменения</span>
+      <h2>{{ isPreview ? 'Просмотр' : 'Зона' }}</h2>
+      <span v-if="hasEdits && is2d" class="admin-panel__badge">Есть изменения</span>
     </div>
 
-    <div class="admin-panel__actions">
-      <button type="button" class="admin-btn admin-btn--primary" @click="emit('add-zone')">
-        + Добавить блок
-      </button>
-      <button type="button" class="admin-btn admin-btn--primary" @click="emit('add-object')">
-        + Добавить объект
-      </button>
+    <div v-if="is2d" class="admin-panel__actions">
       <button type="button" class="admin-btn" @click="emit('export-json')">
         Экспорт JSON
       </button>
@@ -133,66 +66,24 @@ const sceneObjectDescription = computed({
       </button>
     </div>
 
-    <p class="admin-panel__hint">
-      Выберите блок и двигайте его стрелками гизмо (красная — X, синяя — Z) или задайте смещение
-      вручную. Оригинальные координаты сохранены — сброс вернёт позицию и размер.
+    <p v-if="is2d" class="admin-panel__hint">
+      Выберите зону на плане, чтобы задать название, категорию и теги.
+    </p>
+    <p v-else class="admin-panel__hint">
+      Режим предпросмотра 3D. Редактирование — на вкладке «План 2D».
     </p>
 
-    <div v-if="sceneObject" class="admin-panel__form">
-      <h3>{{ sceneObject.name || sceneObject.id }}</h3>
-
-      <p class="admin-field__meta">
-        Модель: {{ sceneObjectAsset?.name ?? sceneObject.assetId }}
+    <div v-if="isPreview && zone" class="admin-panel__form">
+      <h3>{{ zone.name || `Зона №${zone.id}` }}</h3>
+      <p class="admin-field__meta">Категория: {{ categoryLabel }}</p>
+      <p v-if="zone.tags?.length" class="admin-field__meta">
+        Теги: {{ zone.tags.join(', ') }}
       </p>
-
-      <p class="admin-field__meta">
-        Позиция: X {{ (sceneObject.position?.[0] ?? 0).toFixed(1) }},
-        Z {{ (sceneObject.position?.[1] ?? 0).toFixed(1) }}
-      </p>
-
-      <label class="admin-field">
-        <span>Название</span>
-        <input v-model="sceneObjectName" type="text" placeholder="Кофейня у входа" />
-      </label>
-
-      <label class="admin-field">
-        <span>Категория</span>
-        <select v-model="sceneObjectCategory" class="admin-field__select">
-          <option v-for="opt in SCENE_OBJECT_CATEGORIES" :key="opt.value" :value="opt.value">
-            {{ opt.label }}
-          </option>
-        </select>
-      </label>
-
-      <label class="admin-field">
-        <span>Теги</span>
-        <TagsInput v-model:tags="sceneObjectTags" />
-        <span class="admin-field__hint">Помогут найти объект через поиск: кофе, туалет, банкомат…</span>
-      </label>
-
-      <label class="admin-field">
-        <span>Описание</span>
-        <textarea
-          v-model="sceneObjectDescription"
-          class="admin-field__textarea"
-          rows="3"
-          placeholder="Короткое описание для поиска"
-        />
-      </label>
-
-      <p class="admin-panel__hint">
-        Двигайте объект стрелками гизмо (красная — X, синяя — Z).
-      </p>
-
-      <div class="admin-panel__zone-actions">
-        <button type="button" class="admin-btn admin-btn--danger" @click="emit('delete-scene-object')">
-          Удалить объект
-        </button>
-      </div>
+      <p v-if="zone.description" class="admin-field__meta">{{ zone.description }}</p>
     </div>
 
-    <div v-else-if="zone" class="admin-panel__form">
-      <h3>Блок №{{ zone.id }}</h3>
+    <div v-else-if="is2d && zone" class="admin-panel__form">
+      <h3>Зона №{{ zone.id }}</h3>
 
       <label class="admin-field">
         <span>Название</span>
@@ -200,64 +91,40 @@ const sceneObjectDescription = computed({
       </label>
 
       <label class="admin-field">
-        <span>Высота</span>
-        <div class="admin-field__row">
-          <input v-model.number="zoneHeight" type="range" min="0.5" max="8" step="0.1" />
-          <input v-model.number="zoneHeight" type="number" min="0.5" max="8" step="0.1" class="admin-field__num" />
-        </div>
+        <span>Категория</span>
+        <select v-model="zoneCategory" class="admin-field__select">
+          <option v-for="opt in categoryOptions" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </option>
+        </select>
       </label>
 
       <label class="admin-field">
-        <span>Ширина</span>
-        <div class="admin-field__row">
-          <input v-model.number="zoneWidth" type="range" min="0.5" max="40" step="0.1" />
-          <input v-model.number="zoneWidth" type="number" min="0.5" max="40" step="0.1" class="admin-field__num" />
-        </div>
+        <span>Теги</span>
+        <TagsInput v-model:tags="zoneTags" />
+        <span class="admin-field__hint">Для поиска: майка, кофе, аптека…</span>
       </label>
 
       <label class="admin-field">
-        <span>Глубина</span>
-        <div class="admin-field__row">
-          <input v-model.number="zoneDepth" type="range" min="0.5" max="40" step="0.1" />
-          <input v-model.number="zoneDepth" type="number" min="0.5" max="40" step="0.1" class="admin-field__num" />
-        </div>
-      </label>
-
-      <label class="admin-field">
-        <span>Цвет</span>
-        <div class="admin-field__row">
-          <input v-model="zoneColor" type="color" class="admin-field__color" />
-          <input v-model="zoneColor" type="text" class="admin-field__hex" />
-        </div>
-      </label>
-
-      <label class="admin-field">
-        <span>Смещение X</span>
-        <div class="admin-field__row">
-          <input v-model.number="zoneOffsetX" type="range" :min="OFFSET_MIN" :max="OFFSET_MAX" step="0.1" />
-          <input v-model.number="zoneOffsetX" type="number" :min="OFFSET_MIN" :max="OFFSET_MAX" step="0.1" class="admin-field__num" />
-        </div>
-      </label>
-
-      <label class="admin-field">
-        <span>Смещение Z</span>
-        <div class="admin-field__row">
-          <input v-model.number="zoneOffsetZ" type="range" :min="OFFSET_MIN" :max="OFFSET_MAX" step="0.1" />
-          <input v-model.number="zoneOffsetZ" type="number" :min="OFFSET_MIN" :max="OFFSET_MAX" step="0.1" class="admin-field__num" />
-        </div>
+        <span>Описание</span>
+        <textarea
+          v-model="zoneDescription"
+          class="admin-field__textarea"
+          rows="3"
+          placeholder="Короткое описание"
+        />
       </label>
 
       <div class="admin-panel__zone-actions">
-        <button type="button" class="admin-btn" @click="emit('reset-zone')">
-          Сбросить блок
-        </button>
         <button type="button" class="admin-btn admin-btn--danger" @click="emit('delete-zone')">
           Удалить
         </button>
       </div>
     </div>
 
-    <p v-else class="admin-panel__empty">Выберите блок на карте для редактирования</p>
+    <p v-else class="admin-panel__empty">
+      {{ isPreview ? 'Кликните зону на карте' : 'Выберите зону на плане' }}
+    </p>
   </aside>
 </template>
 
@@ -319,16 +186,6 @@ const sceneObjectDescription = computed({
   cursor: not-allowed;
 }
 
-.admin-btn--primary {
-  background: #1a1a1a;
-  color: #fff;
-  border-color: #1a1a1a;
-}
-
-.admin-btn--primary:hover:not(:disabled) {
-  background: #333;
-}
-
 .admin-btn--danger {
   color: #c0392b;
   border-color: #f0c4c0;
@@ -362,7 +219,6 @@ const sceneObjectDescription = computed({
 }
 
 .admin-field input[type='text'],
-.admin-field input[type='number'],
 .admin-field select,
 .admin-field textarea {
   padding: 8px 10px;
@@ -388,36 +244,10 @@ const sceneObjectDescription = computed({
   line-height: 1.4;
 }
 
-.admin-field__row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.admin-field__row input[type='range'] {
-  flex: 1;
-}
-
-.admin-field__num {
-  width: 64px;
-}
-
-.admin-field__color {
-  width: 40px;
-  height: 32px;
-  padding: 2px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.admin-field__hex {
-  flex: 1;
-}
-
 .admin-field__meta {
   font-size: 13px;
   color: #333;
+  margin: 0;
 }
 
 .admin-panel__zone-actions {

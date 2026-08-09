@@ -34,4 +34,6 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ floor_json: floorJson }),
     }),
+  detectShops: (floorId) =>
+    request(`/floors/${floorId}/detect-shops`, { method: 'POST' }),
 }
